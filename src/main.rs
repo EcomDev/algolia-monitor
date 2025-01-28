@@ -21,6 +21,9 @@ struct Args {
 
     #[arg(short, long, default_value = "30")]
     delay: u64,
+
+    #[arg(long, default_value = "1000")]
+    delta: u64,
 }
 
 impl Args {
@@ -128,8 +131,8 @@ async fn main() -> Result<(), reqwest::Error> {
 
     loop {
         let total_records = client.total_records().await?;
-        if (expected_records as i64 - total_records as i64).abs() > 1000 {
-            eprintln!("Records count difference is more than 1000, waiting for logs...");
+        if (expected_records as i64 - total_records as i64).abs() > args.delta as i64 {
+            eprintln!("Records count difference is more than {}, waiting for logs...", args.delta);
             let logs = client.get_logs().await?;
             for log in &logs {
                 if log.timestamp > last_log_timestamp && log.is_update() {

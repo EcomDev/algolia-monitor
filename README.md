@@ -23,6 +23,7 @@ Arguments:
 Options:
   -e, --expected-records <EXPECTED_RECORDS>  [default: 0]
   -d, --delay <DELAY>                        [default: 30]
+      --delta <DELTA>                        [default: 1000]
   -h, --help                                 Print help
   -V, --version                              Print version
 ```
