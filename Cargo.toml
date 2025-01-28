@@ -1,0 +1,12 @@
+[package]
+name = "algolia-monitor"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = [ "brotli", "json", "http2", "rustls-tls-native-roots"] }
+tokio = { version = "1", features = ["full"] }
+clap = {  version = "4", features = ["derive"] }
+serde_json = "1"
+serde = "1"
