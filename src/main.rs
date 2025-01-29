@@ -1,6 +1,7 @@
 use clap::{arg, Parser};
 use serde_json::{to_string, Value};
 use std::time::Duration;
+use reqwest::Error;
 use tokio::time::sleep;
 
 /// Algolia index size monitor
@@ -16,14 +17,17 @@ struct Args {
     /// Name of the index to monitor
     index_name: String,
 
+    #[arg(short, long, default_value = "false")]
+    all_logs: bool,
+
     #[arg(short, long, default_value = "0")]
     expected_records: u64,
 
     #[arg(short, long, default_value = "30")]
     delay: u64,
 
-    #[arg(long, default_value = "1000")]
-    delta: u64,
+    #[arg(long, default_value = "-1000")]
+    delta: i64,
 }
 
 impl Args {
@@ -55,8 +59,7 @@ struct AlgoliaClient {
 
 struct AlgoliaLog {
     timestamp: String,
-    message: String,
-    method: String,
+    message: String
 }
 
 impl AlgoliaLog {
@@ -64,12 +67,11 @@ impl AlgoliaLog {
         AlgoliaLog {
             timestamp: json["timestamp"].as_str().unwrap().to_string(),
             message: to_string(json).unwrap(),
-            method: json["method"].as_str().unwrap().to_string(),
         }
     }
 
-    fn is_update(&self) -> bool {
-        self.method != "GET"
+    fn is_newer(&self, timestamp: &String) -> bool {
+        self.timestamp.gt(timestamp)
     }
 }
 
@@ -125,32 +127,62 @@ async fn main() -> Result<(), reqwest::Error> {
         _ => args.expected_records,
     };
 
-    eprintln!(
-        "Monitoring for record count changes, started with expected value of {expected_records}"
-    );
+    if !args.all_logs {
+        eprintln!(
+            "Monitoring for record count changes, started with expected value of {expected_records}"
+        );
+    }
 
     loop {
-        let total_records = client.total_records().await?;
-        if (expected_records as i64 - total_records as i64).abs() > args.delta as i64 {
-            eprintln!("Records count difference is more than {}, waiting for logs...", args.delta);
-            let logs = client.get_logs().await?;
-            for log in &logs {
-                if log.timestamp > last_log_timestamp && log.is_update() {
-                    if log.message.contains("delete") {
-                        println!("DELETE:{}", log.message);
-                        continue;
-                    }
-
-                    println!("UPDATE:{}", log.message);
-                }
-            }
-            for log in &logs {
-                if log.timestamp > last_log_timestamp {
-                    last_log_timestamp = log.timestamp.to_string();
-                }
-            }
+        if args.all_logs {
+            print_all_logs(&client, &mut last_log_timestamp).await?;
+        } else {
+            print_logs_when_records_change(&client, expected_records, args.delta, &mut last_log_timestamp).await?;
         }
-
         sleep(Duration::from_secs(args.delay)).await;
     }
+}
+
+async fn print_logs_when_records_change(
+    client: &AlgoliaClient,
+    expected_records: u64,
+    delta: i64,
+    last_log_timestamp: &mut String,
+) -> Result<(), Error> {
+    let total_records = client.total_records().await?;
+    let changed_records = total_records as i64 - expected_records as i64;
+    if (delta < 0 && changed_records < delta) || (delta > 0 && changed_records > delta) {
+        eprintln!(
+            "Records count difference is more than {} ({}), waiting for logs...",
+            delta,
+            changed_records
+        );
+        print_algolia_logs(client, last_log_timestamp).await?;
+    }
+
+    Ok(())
+}
+
+
+async fn print_all_logs(
+    client: &AlgoliaClient,
+    last_log_timestamp: &mut String,
+) -> Result<(), reqwest::Error> {
+    print_algolia_logs(client, last_log_timestamp).await?;
+    Ok(())
+}
+
+async fn print_algolia_logs(client: &AlgoliaClient, last_log_timestamp: &mut String) -> Result<(), Error> {
+    let logs = client.get_logs().await?;
+    for log in &logs {
+        if log.is_newer(last_log_timestamp) {
+            println!("{}", log.message);
+        }
+    }
+    for log in &logs {
+        if log.is_newer(last_log_timestamp) {
+            let _ = std::mem::replace(last_log_timestamp, log.timestamp.clone());
+        }
+    }
+    Ok(())
 }
